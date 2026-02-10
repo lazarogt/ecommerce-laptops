@@ -1,5 +1,0 @@
-{
-  "watch": ["src"],
-  "ignore": ["whatsapp-auth/**", "src/auth_info/**", "*.json"],
-  "ext": "js,json"
-}
