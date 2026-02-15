@@ -1,102 +1,206 @@
-import { useCart } from "../context/CartContext";
-import { useNavigate } from "react-router-dom";
-import { useState } from "react";
+// src/pages/Cart.tsx
+import React, { useState } from "react";
 import axios from "axios";
+import { useNavigate } from "react-router-dom";
+import { useCart } from "../context/CartContext";
+import type { CartItem } from "../types/cart";
 
-const Cart = () => {
+export interface CartProps {
+  onClose?: () => void;
+}
+
+const Cart: React.FC<CartProps> = ({ onClose }) => {
   const { items, total, removeFromCart, updateQuantity, clearCart } = useCart();
   const navigate = useNavigate();
 
-  const [customerName, setCustomerName] = useState("");
-  const [customerPhone, setCustomerPhone] = useState("");
-  const [sending, setSending] = useState(false);
+  const [customerName, setCustomerName] = useState<string>("");
+  const [customerPhone, setCustomerPhone] = useState<string>("");
+  const [sending, setSending] = useState<boolean>(false);
 
   const token = localStorage.getItem("token");
 
   const handleSendOrder = async () => {
-    // 🔒 BLOQUEO DURO SI NO HAY LOGIN
-    if (!token) {
-      navigate("/login", {
-        state: {
-          from: "/cart",
-          message: "Debes iniciar sesión para completar tu compra",
-        },
-      });
-      return;
-    }
-
-    if (!customerName.trim() || !customerPhone.trim()) {
-      alert("Nombre y teléfono son obligatorios");
-      return;
-    }
-
-    try {
-      setSending(true);
-
-      await axios.post("http://localhost:3000/api/orders", {
-        customerName,
-        customerPhone,
-        items,
-      });
-
-      alert("Pedido enviado correctamente ✅");
-      clearCart();
-    } catch (err) {
-      console.error(err);
-      alert("Error al enviar pedido");
-    } finally {
-      setSending(false);
-    }
-  };
-
-  if (items.length === 0) {
-    return <p>El carrito está vacío</p>;
+  if (!token) {
+    navigate("/login", { state: { from: "/cart", message: "Debes iniciar sesión para completar tu compra" }});
+    return;
   }
 
+  if (!customerName.trim() || !customerPhone.trim()) {
+    alert("Nombre y teléfono son obligatorios");
+    return;
+  }
+
+  const normalizedPhone = customerPhone.replace(/\D/g, "");
+  if (!normalizedPhone) {
+    alert("Teléfono inválido");
+    return;
+  }
+
+  const payload = {
+    customerName: customerName.trim(),
+    customerPhone: normalizedPhone,
+    products: items.map((i: CartItem) => ({ productId: i.productId, quantity: i.quantity })),
+    total,
+  };
+
+  try {
+    setSending(true);
+    console.log("Enviando pedido -> payload:", payload);
+
+    const res = await axios.post("/api/orders", payload, {
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      validateStatus: () => true // siempre retornar respuesta para manejarla nosotros
+    });
+
+    console.log("POST /api/orders response status:", res.status, "data:", res.data);
+
+    // considerar cualquier 2xx como éxito
+    if (res.status >= 200 && res.status < 300) {
+      // Navegar ANTES de onClose para evitar que el modal desmonte el componente
+      // Ajusta target si tu "página de logística" es otra (p.ej. "/logistica")
+      const target = "/my-orders";
+      navigate(target);
+
+      // Si quieres que el modal se cierre visualmente un instante después:
+      if (onClose) {
+        // opcional: pequeño retardo para que el navegador procese la navegación visualmente
+        setTimeout(() => onClose(), 150);
+      }
+
+      clearCart();
+      return;
+    }
+
+    // Si no fue 2xx, mostrar el mensaje que venga del backend
+    const errMsg = res.data?.error || res.data?.message || `HTTP ${res.status}`;
+    console.error("Error al procesar pedido (server):", res.data);
+    alert("No se pudo procesar el pedido: " + errMsg);
+  } catch (err: unknown) {
+    console.error("Error enviando pedido (catch):", err);
+    // manejo seguro de axios errors si quieres más detalle
+    if (axios.isAxiosError(err)) {
+      alert("Error al enviar pedido: " + (err.response?.data?.error || err.message));
+    } else if (err instanceof Error) {
+      alert("Error al enviar pedido: " + err.message);
+    } else {
+      alert("Error al enviar pedido (ver consola)");
+    }
+  } finally {
+    setSending(false);
+  }
+};
+
+  if (!items || items.length === 0) return <p>El carrito está vacío</p>;
+
   return (
-    <div>
+    <div style={{ padding: 16, maxWidth: 720 }}>
+      {onClose && (
+        <div style={{ display: "flex", justifyContent: "flex-end" }}>
+          <button onClick={onClose} aria-label="Cerrar carrito" style={{ fontSize: 18 }}>
+            ✖
+          </button>
+        </div>
+      )}
+
       <h2>Carrito</h2>
 
-      {items.map((item) => (
-        <div key={item.productId}>
+      {items.map((item: CartItem) => (
+        <div key={item.productId} style={{ marginBottom: 12, borderBottom: "1px solid #eee", paddingBottom: 8 }}>
           <strong>{item.name}</strong>
-          <p>{item.description}</p>
-          <p>${item.price}</p>
+          {item.description && <p style={{ margin: "6px 0", color: "#555" }}>{item.description}</p>}
+          <p style={{ margin: "6px 0" }}>${Number(item.price).toFixed(2)}</p>
 
-          <button onClick={() => updateQuantity(item.productId, item.quantity - 1)}>-</button>
-          <span>{item.quantity}</span>
-          <button onClick={() => updateQuantity(item.productId, item.quantity + 1)}>+</button>
-
-          <button onClick={() => removeFromCart(item.productId)}>Eliminar</button>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <button
+              onClick={() => updateQuantity(item.productId, Math.max(1, item.quantity - 1))}
+              disabled={!token}
+            >
+              -
+            </button>
+            <span>{item.quantity}</span>
+            <button onClick={() => updateQuantity(item.productId, item.quantity + 1)} disabled={!token}>
+              +
+            </button>
+            <button onClick={() => removeFromCart(item.productId)} style={{ marginLeft: 12 }} disabled={!token}>
+              Eliminar
+            </button>
+          </div>
         </div>
       ))}
 
       <hr />
-      <p>Total: ${total}</p>
+      <p>
+        <strong>Total:</strong> ${Number(total).toFixed(2)}
+      </p>
 
-      {!token && (
-        <p style={{ color: "red" }}>
-          Debes iniciar sesión para finalizar la compra
-        </p>
-      )}
+      <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 8 }}>
+        <input
+          placeholder="Tu nombre"
+          value={customerName}
+          onChange={(e) => setCustomerName(e.target.value)}
+          disabled={!token}
+          style={{ padding: 8 }}
+        />
+        <input
+          placeholder="Tu teléfono (incluye prefijo país)"
+          value={customerPhone}
+          onChange={(e) => setCustomerPhone(e.target.value)}
+          disabled={!token}
+          style={{ padding: 8 }}
+        />
+      </div>
 
-      <input
-        placeholder="Tu nombre"
-        value={customerName}
-        onChange={(e) => setCustomerName(e.target.value)}
-        disabled={!token}
-      />
-
-      <input
-        placeholder="Tu teléfono"
-        value={customerPhone}
-        onChange={(e) => setCustomerPhone(e.target.value)}
-        disabled={!token}
-      />
-
-      <button onClick={handleSendOrder} disabled={!token || sending}>
-        {!token ? "Inicia sesión para comprar" : sending ? "Enviando..." : "Confirmar pedido"}
-      </button>
+      <div style={{ marginTop: 12 }}>
+        {!token ? (
+          <div style={{ display: "flex", gap: 8 }}>
+            <button
+              onClick={() =>
+                navigate("/login", {
+                  state: { from: "/cart", message: "Debes iniciar sesión para completar tu compra" },
+                })
+              }
+              style={{
+                padding: "10px 12px",
+                backgroundColor: "#1976d2",
+                color: "#fff",
+                border: "none",
+                borderRadius: 4,
+                cursor: "pointer",
+              }}
+            >
+              Inicia sesión para comprar
+            </button>
+            <button
+              onClick={() => navigate("/register")}
+              style={{
+                padding: "10px 12px",
+                backgroundColor: "#eee",
+                border: "1px solid #ccc",
+                borderRadius: 4,
+                cursor: "pointer",
+              }}
+            >
+              Registrarme
+            </button>
+          </div>
+        ) : (
+          <button
+            onClick={handleSendOrder}
+            disabled={sending}
+            style={{
+              padding: "10px 12px",
+              marginTop: 8,
+              backgroundColor: "#28a745",
+              color: "#fff",
+              border: "none",
+              borderRadius: 4,
+              cursor: sending ? "not-allowed" : "pointer",
+            }}
+          >
+            {sending ? "Enviando..." : "Confirmar pedido"}
+          </button>
+        )}
+      </div>
     </div>
   );
 };

@@ -14,7 +14,7 @@ const OrderProduct = sequelize.define('OrderProduct', {
     defaultValue: 0,
   },
 }, {
-  tableName: 'OrderProducts',
+  tableName: 'OrderProduct',
   timestamps: false,
 });
 

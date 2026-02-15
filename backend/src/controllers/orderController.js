@@ -1,11 +1,15 @@
 // backend/src/controllers/orderController.js
-const { Order, Product } = require("../models");
+const { Order, Product, User } = require("../models");
 const sequelize = require("../config/database");
 const { sendWhatsAppMessage } = require("../services/whatsappService");
 const {
   validateOrderStatusTransition,
   allowedTransitions,
 } = require("../utils/orderStatus");
+
+function normalizePhone(phone = "") {
+  return String(phone || "").replace(/\D/g, "");
+}
 
 /**
  * createOrder
@@ -15,176 +19,165 @@ const {
  *  O en modo simple:
  *    - customerName, customerPhone, total
  */
-
 async function createOrder(req, res) {
-  const t = await sequelize.transaction();
+  console.log("createOrder called. req.user:", req.user);
+  // Requerir auth antes de abrir transacción
+  if (!req.user || !req.user.id) {
+    return res.status(401).json({ ok: false, error: "Autenticación requerida" });
+  }
+  const userId = req.user.id;
+
+  const userExists = await User.findByPk(userId);
+  if(!userExists){
+    console.error(`createOrder:userId ${userId} no encontrado en Users`);
+    return res.status(400).json({ok:false, error:"Usuario no encontrado (userId invalido)"});
+  }
+
+  // Leer inputs (sin tocar DB aún)
+  const { customerName, customerPhone, total: totalFromBody } = req.body || {};
+  const productsInput = req.body.products || req.body.items || [];
+
+  if (
+    (!productsInput || productsInput.length === 0) &&
+    (!customerName || !customerPhone || !totalFromBody)
+  ) {
+    return res.status(400).json({
+      ok: false,
+      error:
+        "Datos incompletos: enviar products/items o customerName+customerPhone+total",
+    });
+  }
+
+  // Normalizar cliente (inmediato; es seguro)
+  const customerNameFinal =
+    (customerName && String(customerName).trim()) || req.user.name || "Cliente";
+  let customerPhoneFinal =
+    (customerPhone && normalizePhone(customerPhone)) || normalizePhone(req.user?.phone) || "";
+
   try {
-    const userId = req.user ? req.user.id : null;
-    const { customerName, customerPhone, total: totalFromBody } = req.body;
+    // Usamos transacción gestionada: commit/rollback automático según éxito/fallo
+    const txResult = await sequelize.transaction(async (t) => {
+      // Crear orden preliminar ligada al userId
+      const order = await Order.create(
+        {
+          userId,
+          customerName: customerNameFinal,
+          customerPhone: customerPhoneFinal,
+          total: 0,
+          status: "PENDING",
+        },
+        { transaction: t }
+      );
 
-    // aceptar products o items (tolerante)
-    const productsInput = req.body.products || req.body.items || [];
+      let total = 0;
+      let itemsMessage = "";
 
-    // si no hay productos y tampoco datos simples -> error
-    if (
-      (!productsInput || productsInput.length === 0) &&
-      (!customerName || !customerPhone || !totalFromBody)
-    ) {
-      await t.rollback();
-      return res.status(400).json({
-        ok: false,
-        error:
-          "Datos incompletos: enviar products/items o customerName+customerPhone+total",
-      });
-    }
+      if (productsInput && Array.isArray(productsInput) && productsInput.length > 0) {
+        for (const it of productsInput) {
+          const productId = it.productId || it.id;
+          const quantity = Number(it.quantity) || 0;
+          if (!productId || quantity <= 0) {
+            // lanzar para que la transacción haga rollback automáticamente
+            const err = new Error("products/items inválidos (productId y quantity > 0)");
+            err.statusCode = 400;
+            throw err;
+          }
 
-    // Normalizar datos de cliente
-    const customerNameFinal =
-      (customerName && String(customerName).trim()) ||
-      (req.user && req.user.name) ||
-      "Cliente";
-    const customerPhoneFinal =
-      (customerPhone && String(customerPhone).replace(/\D/g, "")) ||
-      (req.user && req.user.phone) ||
-      "";
+          // Buscar producto dentro de la transacción
+          const product = await Product.findByPk(productId, { transaction: t });
+          if (!product) {
+            const err = new Error(`Producto no encontrado (id: ${productId})`);
+            err.statusCode = 400;
+            throw err;
+          }
 
-    // Crear orden preliminar
-    const order = await Order.create(
-      {
-        userId,
-        customerName: customerNameFinal,
-        customerPhone: customerPhoneFinal,
-        total: 0,
-        status: "PENDING",
-      },
-      { transaction: t }
-    );
+          if (product.stock < quantity) {
+            const err = new Error(
+              `Stock insuficiente para producto ${product.name} (id: ${productId})`
+            );
+            err.statusCode = 400;
+            throw err;
+          }
 
-    let total = 0;
-    let itemsMessage = "";
+          const linePrice = Number(product.price) * quantity;
+          total += linePrice;
 
-    // Si vienen productos/items -> procesarlos (modo ecommerce)
-    if (
-      productsInput &&
-      Array.isArray(productsInput) &&
-      productsInput.length > 0
-    ) {
-      for (const it of productsInput) {
-        const productId = it.productId || it.id;
-        const quantity = Number(it.quantity) || 0;
-        if (!productId || quantity <= 0) {
-          await t.rollback();
-          return res.status(400).json({
-            ok: false,
-            error: "products/items inválidos (productId y quantity > 0)",
+          // Relación many-to-many con through { quantity, price }
+          await order.addProduct(product, {
+            through: { quantity, price: product.price },
+            transaction: t,
           });
+
+          // Descontar stock
+          product.stock = product.stock - quantity;
+          await product.save({ transaction: t });
+
+          itemsMessage += `- ${product.name} x${quantity} → $${Number(product.price).toFixed(2)}\n`;
         }
-
-        // Obtener producto y verificar stock
-        const product = await Product.findByPk(productId, { transaction: t });
-        if (!product) {
-          await t.rollback();
-          return res.status(400).json({
-            ok: false,
-            error: `Producto no encontrado (id: ${productId})`,
-          });
-        }
-
-        if (product.stock < quantity) {
-          await t.rollback();
-          return res.status(400).json({
-            ok: false,
-            error: `Stock insuficiente para producto ${product.name} (id: ${productId})`,
-          });
-        }
-
-        // Calcular línea y agregar al total
-        const linePrice = Number(product.price) * quantity;
-        total += linePrice;
-
-        // Agregar relación many-to-many con through { quantity, price }
-        await order.addProduct(product, {
-          through: { quantity, price: product.price },
-          transaction: t,
-        });
-
-        // Descontar stock
-        product.stock = product.stock - quantity;
-        await product.save({ transaction: t });
-
-        itemsMessage += `- ${product.name} x${quantity} → $${Number(
-          product.price
-        ).toFixed(2)}\n`;
+      } else {
+        // Modo simple (sin detalle de productos)
+        total = Number(totalFromBody) || 0;
       }
-    } else {
-      // Modo simple (sin detalle de productos)
-      total = Number(totalFromBody) || 0;
-    }
 
-    // Guardar total y confirmar
-    order.total = total;
-    await order.save({ transaction: t });
-    await t.commit();
+      // Guardar total y persistir
+      order.total = total;
+      await order.save({ transaction: t });
 
-    // Mensajes WhatsApp (no bloqueantes)
-    const clientMsg = `✅ Confirmación de pedido\n\nHola ${customerNameFinal}\nTu pedido (ID: ${
-      order.id
-    }) fue registrado.\nTotal: $${order.total.toFixed(
+      // Devuelve datos útiles fuera de la transacción
+      return { order, itemsMessage, customerNameFinal, customerPhoneFinal };
+    }); // fin transaction
+
+    // txResult contiene lo retornado dentro: { order, itemsMessage, ... }
+    const { order, itemsMessage } = txResult;
+    // customerPhoneFinal y customerNameFinal vienen del scope superior
+
+    // Mensajes WhatsApp (fuera de la transacción, no bloqueantes)
+    const clientMsg = `✅ Confirmación de pedido\n\nHola ${customerNameFinal}\nTu pedido (ID: ${order.id}) fue registrado.\nTotal: $${order.total.toFixed(
       2
-    )}\n\nGracias por tu compra.`;
-    const adminPhone = (
-      process.env.ADMIN_PHONE ||
-      process.env.OWNER_PHONE ||
-      ""
-    ).replace(/\D/g, "");
-    const adminMsg = `📣 NUEVO PEDIDO\nID: ${
-      order.id
-    }\nCliente: ${customerNameFinal}\nTel: ${
+    )}\n\nProductos:\n${itemsMessage || "(sin detalle de productos)"}\n\nGracias por tu compra.`;
+
+    const adminPhone = (process.env.ADMIN_PHONE || process.env.OWNER_PHONE || "").replace(/\D/g, "");
+    const adminMsg = `📣 NUEVO PEDIDO\nID: ${order.id}\nCliente: ${customerNameFinal}\nTel: ${
       customerPhoneFinal || "(no provisto)"
-    }\nTotal: $${order.total.toFixed(2)}\n\nProductos:\n${
-      itemsMessage || "(sin detalle de productos)"
-    }`;
+    }\nTotal: $${order.total.toFixed(2)}\n\nProductos:\n${itemsMessage || "(sin detalle de productos)"}`;
 
-    const normalizePhone = (phone = "") => phone.replace(/\D/g, "");
-    customerPhoneFinal = normalizePhone(customerPhone || req.user?.phone);
-
+    // Envío asincrónico (no bloquear la respuesta)
     if (customerPhoneFinal) {
       sendWhatsAppMessage(customerPhoneFinal, clientMsg)
-        .then(() =>
-          console.log(
-            "WhatsApp: mensaje enviado al cliente",
-            customerPhoneFinal
-          )
-        )
-        .catch((err) =>
-          console.error("WhatsApp (cliente) error:", err && err.message)
-        );
+        .then(() => console.log("WhatsApp: mensaje enviado al cliente", customerPhoneFinal))
+        .catch((err) => console.error("WhatsApp (cliente) error:", err && err.message));
     } else {
       console.warn("WhatsApp: no se envió a cliente (teléfono no disponible)");
     }
 
     if (adminPhone) {
       sendWhatsAppMessage(adminPhone, adminMsg)
-        .then(() =>
-          console.log("WhatsApp: notificación enviada al admin", adminPhone)
-        )
-        .catch((err) =>
-          console.error("WhatsApp (admin) error:", err && err.message)
-        );
+        .then(() => console.log("WhatsApp: notificación enviada al admin", adminPhone))
+        .catch((err) => console.error("WhatsApp (admin) error:", err && err.message));
     } else {
-      console.warn(
-        "WhatsApp: ADMIN_PHONE no configurado; no se envió notificación admin."
-      );
+      console.warn("WhatsApp: ADMIN_PHONE no configurado; no se envió notificación admin.");
     }
 
     return res.status(201).json({ ok: true, message: "Pedido creado", order });
   } catch (error) {
-    await t.rollback();
-    console.error("ERROR crear orden:", error && (error.message || error));
+    // Si error tiene statusCode lo devolvemos con 400 (errores de validación/control)
+    console.error("ERROR crear orden:", error && (error.stack || error.message || error));
+
+    // Si es un SequelizeValidationError, extraer mensajes
+    let detalle = error && error.message;
+    if (error && Array.isArray(error.errors)) {
+      detalle = error.errors.map((e) => e.message).join("; ");
+    }
+
+    // Si el error fue lanzado con statusCode (400), devolver 400
+    if (error && error.statusCode === 400) {
+      return res.status(400).json({ ok: false, error: "Error creando pedido", detalle });
+    }
+
     return res.status(500).json({
       ok: false,
       error: "Error al crear pedido",
-      detalle: error && error.message,
+      detalle,
     });
   }
 }
