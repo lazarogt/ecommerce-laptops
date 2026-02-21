@@ -1,11 +1,12 @@
-export interface OrderItem {
-  productId: number;
-  quantity: number;
-}
+import type { User } from "./user";
 
-export interface OrderPayload {
-  items: OrderItem[];
-  total: number;
-  customerName?: string;
-  customerPhone?: string;
+export interface Order {
+  id:string;
+  customerName:string;
+  customerPhone?:string | null;
+  total:number;
+  status:string;
+  createdAt?:string;
+  updateAt?:string;
+  User?:User | null;
 }

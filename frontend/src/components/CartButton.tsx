@@ -1,42 +1,65 @@
+// src/components/CartButton.tsx
+import React from "react";
+import { useNavigate } from "react-router-dom";
 import { useCart } from "../context/CartContext";
 
-export default function CartButton({ onClick }: { onClick: () => void }) {
+type CartButtonProps = {
+  onClick?: () => void; // opcional
+};
+
+const CartButton: React.FC<CartButtonProps> = ({ onClick }) => {
   const { items } = useCart();
+  const navigate = useNavigate();
+
+  const count = items.reduce((s, i) => s + i.quantity, 0);
+
+  const handle = () => {
+    if (onClick) return onClick();
+    navigate("/cart");
+  };
 
   return (
     <button
-      onClick={onClick}
+      className="cart-button"
+      onClick={handle}
+      aria-label="Abrir carrito"
       style={{
         position: "fixed",
-        top: "16px",
-        right: "16px",
-        background: "#111",
-        color: "#fff",
-        borderRadius: "50%",
-        width: "48px",
-        height: "48px",
+        right: 18,
+        bottom: 18,
+        background: "#fff",
+        borderRadius: 999,
+        width: 56,
+        height: 56,
+        border: "1px solid #ddd",
+        boxShadow: "0 4px 12px rgba(0,0,0,0.08)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        zIndex: 9999,
         cursor: "pointer",
-        border: "none",
-        fontSize: "18px"
       }}
     >
-      🛒
-      {items.length > 0 && (
+      <span style={{ fontSize: 20 }}>🛒</span>
+      {count > 0 && (
         <span
           style={{
             position: "absolute",
-            top: "-6px",
-            right: "-6px",
-            background: "red",
+            right: 6,
+            top: 6,
+            background: "crimson",
             color: "white",
-            borderRadius: "50%",
+            borderRadius: 12,
             padding: "2px 6px",
-            fontSize: "12px"
+            fontSize: 12,
+            fontWeight: 700,
           }}
         >
-          {items.length}
+          {count}
         </span>
       )}
     </button>
   );
-}
+};
+
+export default CartButton;

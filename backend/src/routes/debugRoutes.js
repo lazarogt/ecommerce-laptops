@@ -4,7 +4,6 @@ const router = express.Router();
 const { sendWhatsAppMessage } = require("../services/whatsappService");
 
 // POST /api/debug/send-whatsapp
-// body: { phone: "53XXXXXXXXX", message: "texto..." }
 router.post("/send-whatsapp", async (req, res) => {
   try {
     const { phone, message } = req.body;

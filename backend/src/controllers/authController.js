@@ -4,9 +4,6 @@ const { User } = require("../models");
 
 const JWT_SECRET = process.env.JWT_SECRET || "dev_secret";
 
-/**
- * Helper para generar token
- */
 function generateToken(user) {
   const payload = {
     id: user.id,
@@ -18,9 +15,7 @@ function generateToken(user) {
   return jwt.sign(payload, JWT_SECRET, { expiresIn: "7d" });
 }
 
-/**
- * Helper para devolver usuario seguro
- */
+
 function buildSafeUser(user) {
   return {
     id: user.id,
@@ -32,9 +27,7 @@ function buildSafeUser(user) {
   };
 }
 
-/**
- * POST /api/auth/register
- */
+
 async function register(req, res) {
   try {
     const { name, email, password, phone } = req.body;
@@ -78,9 +71,7 @@ async function register(req, res) {
   }
 }
 
-/**
- * POST /api/auth/login
- */
+
 async function login(req, res) {
   try {
     const { email, password } = req.body;
@@ -117,9 +108,7 @@ async function login(req, res) {
   }
 }
 
-/**GET /api/auth/me
- * 
- */
+
 async function me(req,res) {
   try {
     const user = await User.findByPk(req.user.id, {

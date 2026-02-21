@@ -9,21 +9,15 @@ let sock;
 
 async function initWhatsApp() {
   console.log("📲 Inicializando WhatsApp...");
-
-  // Esto guarda la sesión automáticamente en la carpeta whatsapp_auth/
   const { state, saveCreds } = await useMultiFileAuthState(
     "../../whatsapp_auth"
   );
 
   sock = makeWASocket({
     auth: state,
-    printQRInTerminal: false, // deprecated
+    printQRInTerminal: false,
   });
-
-  // Guardamos credenciales automáticamente
   sock.ev.on("creds.update", saveCreds);
-
-  // Escuchar eventos de conexión
   sock.ev.on("connection.update", (update) => {
     const { connection, qr, lastDisconnect } = update;
 

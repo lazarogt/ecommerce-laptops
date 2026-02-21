@@ -3,8 +3,8 @@
 const allowedTransitions = {
   PENDING: ["PAID", "CANCELED"],
   PAID: ["SHIPPED", "CANCELED"],
-  SHIPPED: [], // por defecto no permitimos retroceder ni cancelar aquí
-  CANCELED: [], // terminal
+  SHIPPED: [], 
+  CANCELED: [], 
 };
 
 function validateOrderStatusTransition(current, next) {

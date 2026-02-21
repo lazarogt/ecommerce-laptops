@@ -20,4 +20,12 @@ function authenticateToken(req, res, next) {
   }
 }
 
-module.exports = authenticateToken;
+function isAdmin (req,res,next){
+  if(req.user?.role !== "admin"){
+    return res.status(403).json({error:"Acceso denegado: solo admin"});
+  }
+next();
+  
+}
+
+module.exports = {authenticateToken, isAdmin};

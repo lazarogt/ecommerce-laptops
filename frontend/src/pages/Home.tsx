@@ -2,17 +2,18 @@ import React, { useEffect, useState } from "react";
 import axios from "axios";
 import { useCart } from "../context/CartContext";
 import type { Product } from "../types/product";
+import "./Home.css";
 
 const Home: React.FC = () => {
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
-  const { addToCart } = useCart();
+  const [addedId, setAddedId] = useState<string | null>(null); // para animación +1
+  const { addToCart, items } = useCart();
 
   useEffect(() => {
     const fetchProducts = async () => {
       try {
-        const res = await axios.get("http://localhost:3000/api/products");
-        // Ajustamos según tu backend
+        const res = await axios.get("/api/products");
         if (res.data && res.data.data) {
           setProducts(res.data.data);
         } else {
@@ -24,52 +25,68 @@ const Home: React.FC = () => {
         setLoading(false);
       }
     };
-
     fetchProducts();
   }, []);
 
-  if (loading) return <p>Cargando productos...</p>;
-  if (!products.length) return <p>No hay productos disponibles 😅</p>;
+  const getCartQuantity = (productId: string) => {
+    const item = items.find(i => i.productId === productId);
+    return item ? item.quantity : 0;
+  };
+
+  const handleAddToCart = (product: Product) => {
+    addToCart(product);
+    setAddedId(product.id);
+    setTimeout(() => setAddedId(null), 800); // animación dura 0.8s
+  };
+
+  if (loading) return <p style={{ textAlign: "center" }}>Cargando productos...</p>;
+  if (!products.length) return <p style={{ textAlign: "center" }}>No hay productos disponibles 😅</p>;
 
   return (
-    <div>
+    <div className="home-container">
       <h1>Productos disponibles</h1>
-      <ul style={{ listStyle: "none", padding: 0 }}>
-        {products.map((product) => (
-          <li
-            key={product.id}
-            style={{
-              marginBottom: "20px",
-              border: "1px solid #ccc",
-              padding: "15px",
-              borderRadius: "8px",
-              boxShadow: "2px 2px 6px rgba(0,0,0,0.1)",
-            }}
-          >
-            <h2>{product.name}</h2>
-            <p>{product.description || "Sin descripción"}</p>
-            <p>Precio: ${product.price.toFixed(2)}</p>
-            <p>Stock: {product.stock}</p>
+      <div className="products-grid">
+        {products.map(product => {
+          const cartQty = getCartQuantity(product.id);
+          const isAdded = addedId === product.id;
 
-            <button
-              onClick={() => {
-                addToCart(product);
-                alert(`${product.name} añadido al carrito ✅`);
-              }}
-              style={{
-                padding: "8px 12px",
-                borderRadius: "5px",
-                backgroundColor: "#4caf50",
-                color: "#fff",
-                border: "none",
-                cursor: "pointer",
-              }}
-            >
-              Añadir al carrito
-            </button>
-          </li>
-        ))}
-      </ul>
+          return (
+            <div key={product.id} className="product-card">
+              <div className="product-image">
+                {product.image ? (
+                  <img src={product.image} alt={product.name} />
+                ) : (
+                  <div className="no-image">Sin imagen</div>
+                )}
+              </div>
+
+              <div className="product-info">
+                <h2 className="product-name">{product.name}</h2>
+                <p className="product-desc">
+                  {product.description
+                    ? product.description.slice(0, 80) + (product.description.length > 80 ? "..." : "")
+                    : "Sin descripción"}
+                </p>
+                <p className="product-price">${product.price.toFixed(2)}</p>
+                <p className="product-stock">Stock: {product.stock}</p>
+
+                {cartQty > 0 && (
+                  <p className="cart-qty">En carrito: {cartQty}</p>
+                )}
+
+                <button
+                  disabled={product.stock === 0}
+                  onClick={() => handleAddToCart(product)}
+                  className="add-to-cart-btn"
+                >
+                  {product.stock === 0 ? "Agotado" : "Añadir al carrito"}
+                  {isAdded && <span className="plus-one">+1</span>}
+                </button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 };

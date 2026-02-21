@@ -1,11 +1,6 @@
 const { Product } = require("../models");
 const { OP } = require("sequelize");
 
-/**
- * POST /api/products
- * crear producto (protegido)
- */
-
 async function createProduct(req, res) {
   try {
     const { name, description = "", price, stock } = req.body;
@@ -30,24 +25,18 @@ async function createProduct(req, res) {
   }
 }
 
-/**
- * GET /api/products
- * Listar productos (publico)
- */
+
 async function getProducts(req, res) {
   try {
-    // Leer página y límite (por query string) — valores por defecto
     const page = Math.max(1, Number(req.query.page) || 1);
     const limit = Math.max(1, Number(req.query.limit) || 20);
     const offset = (page - 1) * limit;
 
-    // Opcional: filtros (buscar por name)
     const where = {};
     if (req.query.q) {
       where.name = { [require("sequelize").Op.like]: `%${req.query.q}%` };
     }
 
-    // findAndCountAll devuelve { count, rows }
     const result = await Product.findAndCountAll({
       where,
       limit,
@@ -63,7 +52,7 @@ async function getProducts(req, res) {
       limit,
       total,
       pages,
-      data: result.rows, // <-- aquí estaban faltando en tu salida
+      data: result.rows, 
     });
   } catch (err) {
     console.error("ERROR getProducts:", err);
@@ -73,9 +62,7 @@ async function getProducts(req, res) {
   }
 }
 
-/**
- * GET /api/products/id
- */
+
 async function getproductById(req, res) {
   try {
     const id = req.params.id;
@@ -91,9 +78,7 @@ async function getproductById(req, res) {
   }
 }
 
-/**
- * PUT /api/products/id
- */
+
 async function updateProduct(req, res) {
   try {
     const id = req.params.id;
@@ -118,9 +103,7 @@ async function updateProduct(req, res) {
   }
 }
 
-/**
- * DELETE /api/products/id
- */
+
 async function deleteProduct(req, res) {
   try {
     const id = req.params.id;

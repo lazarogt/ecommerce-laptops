@@ -4,6 +4,7 @@ import ReactDOM from "react-dom/client";
 import axios from "axios";
 import App from "./App";
 import { CartProvider } from "./context/CartProvider";
+import "./index.css";
 
 // Ajusta la base URL según tu backend
 axios.defaults.baseURL = "http://localhost:3000";
@@ -14,15 +15,15 @@ if (token) {
   axios.defaults.headers.common["Authorization"] = `Bearer ${token}`;
 }
 
-// Interceptor: en 401 -> limpiar token y redirigir a login
+// Interceptor: en 401 -> limpiar token y redirigir a login/auth
 axios.interceptors.response.use(
   (res) => res,
   (err) => {
     if (err.response?.status === 401) {
       localStorage.removeItem("token");
       localStorage.removeItem("user");
-      // redirigir a login forzado:
-      window.location.href = "/login";
+      // redirigir a la pantalla de auth (login/registro)
+      window.location.href = "/auth";
     }
     return Promise.reject(err);
   }

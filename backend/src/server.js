@@ -19,6 +19,7 @@ const authRoutes = require("./routes/authRoutes");
 const productRoutes = require("./routes/productRoutes");
 const orderRoutes = require("./routes/orderRoutes");
 const debugRoutes = require("./routes/debugRoutes");
+const adminRoutes = require("./routes/adminRoutes");
 
 // Inicializar app
 const app = express();
@@ -33,6 +34,7 @@ app.use("/api/auth", authRoutes);
 app.use("/api/products", productRoutes);
 app.use("/api/orders", orderRoutes);
 app.use("/api/debug", debugRoutes);
+app.use("/api/admin", adminRoutes);
 
 // Ruta principal de prueba
 app.get("/", (req, res) => {
@@ -47,6 +49,10 @@ async function startServer() {
     console.log("Base de datos sincronizada");
     initWhatsApp();
     app.listen(PORT,()=>{console.log('Servidor activo en http://localhost:3000');});
+    const createAdmin = require("./seeders/seedAdmin");
+    (async ()=>{
+      await createAdmin();
+    })();
   } catch (error) {
     console.error("Error al iniciar servidor:",error);
     process.exit(1);
